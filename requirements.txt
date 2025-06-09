@@ -11,3 +11,4 @@ pyromod
 humanfriendly
 requests
 pytz
+ffmpeg-python
