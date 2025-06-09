@@ -1,1 +1,30 @@
 
+name: Download and Setup FFmpeg
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  setup-ffmpeg:
+    runs-on: ubuntu-latest # می‌توانید به windows-latest یا macos-latest تغییر دهید
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup FFmpeg
+        uses: federicocarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release # یا نسخه خاص مثل "7.1.0"
+          architecture: x64 # یا arm64 برای لینوکس
+          linking-type: static # یا shared برای ویندوز
+          github-token: ${{ github.token }} # برای کش کردن در GitHub
+
+      - name: Verify FFmpeg installation
+        run: |
+          ffmpeg -version
+          ffprobe -version
