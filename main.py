@@ -1,8 +1,6 @@
 # (c) @Savior_128
-# This is very simple Telegram Videos Merge Bot.
-# Coded by a Nub.
-# Don't Laugh seeing the codes.
-# Me learning.
+# Telegram Videos Merge Bot, compatible with Pyrogram 1.4.16
+# Updated for June 7, 2025
 
 import os
 import time
@@ -33,16 +31,38 @@ from asyncio.exceptions import TimeoutError
 from pyrogram.errors import FloodWait, UserNotParticipant, MessageNotModified
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, InputMediaPhoto
 
+# وارد کردن توابع از utils.py
+try:
+    from utils import sync_time, run_with_retry
+except ImportError as e:
+    print(f"خطا در وارد کردن utils: {e}")
+    raise
+
 QueueDB = {}
 ReplyDB = {}
 FormtDB = {}
+
+# حذف فایل سشن قدیمی
+session_file = f"{Config.SESSION_NAME}.session"
+if os.path.exists(session_file):
+    os.remove(session_file)
+    print("فایل سشن قدیمی حذف شد.")
+
+# چاپ PATH برای دیباگ
+
+# همگام‌سازی زمان
+try:
+    sync_time()
+except Exception as e:
+    print(f"خطا در همگام‌سازی زمان: {e}")
+
+# تعریف Client با سینتکس Pyrogram 1.4.16
 NubBot = Client(
     session_name=Config.SESSION_NAME,
-    api_id=Config.API_ID,
+    api_id=int(Config.API_ID),
     api_hash=Config.API_HASH,
     bot_token=Config.BOT_TOKEN
 )
-
 
 @NubBot.on_message(filters.private & filters.command("start"))
 async def start_handler(bot: Client, m: Message):
@@ -64,7 +84,6 @@ async def start_handler(bot: Client, m: Message):
             ]
         )
     )
-
 
 @NubBot.on_message(filters.private & (filters.video | filters.document) & ~filters.edited)
 async def videos_handler(bot: Client, m: Message):
@@ -120,7 +139,6 @@ async def videos_handler(bot: Client, m: Message):
                 reply_markup=InlineKeyboardMarkup(markup)
             )
 
-
 @NubBot.on_message(filters.private & filters.photo & ~filters.edited)
 async def photo_handler(bot: Client, m: Message):
     await AddUserToDatabase(bot, m)
@@ -139,7 +157,6 @@ async def photo_handler(bot: Client, m: Message):
         )
     )
 
-
 @NubBot.on_message(filters.private & filters.command("settings"))
 async def settings_handler(bot: Client, m: Message):
     await AddUserToDatabase(bot, m)
@@ -149,11 +166,9 @@ async def settings_handler(bot: Client, m: Message):
     editable = await m.reply_text("Please Wait ...", quote=True)
     await OpenSettings(editable, m.from_user.id)
 
-
 @NubBot.on_message(filters.private & filters.command("broadcast") & filters.reply & filters.user(Config.BOT_OWNER) & ~filters.edited)
 async def _broadcast(_, m: Message):
     await broadcast_handler(m)
-
 
 @NubBot.on_message(filters.private & filters.command("status") & filters.user(Config.BOT_OWNER))
 async def _status(_, m: Message):
@@ -171,7 +186,6 @@ async def _status(_, m: Message):
         quote=True
     )
 
-
 @NubBot.on_message(filters.private & filters.command("check") & filters.user(Config.BOT_OWNER))
 async def check_handler(bot: Client, m: Message):
     if len(m.command) == 2:
@@ -188,7 +202,6 @@ async def check_handler(bot: Client, m: Message):
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
-
 
 @NubBot.on_callback_query()
 async def callback_handlers(bot: Client, cb: CallbackQuery):
@@ -439,7 +452,7 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
             try:
                 ask_: Message = await bot.listen(cb.message.chat.id, timeout=300)
                 if ask_.text:
-                    ascii_ = e = ''.join([i if (i in string.digits or i in string.ascii_letters or i == " ") else "" for i in ask_.text])
+                    ascii_ = ''.join([i if (i in string.digits or i in string.ascii_letters or i == " ") else "" for i in ask_.text])
                     new_file_name = f"{Config.DOWN_PATH}/{str(cb.from_user.id)}/{ascii_.replace(' ', '_').rsplit('.', 1)[0]}.{FormtDB.get(cb.from_user.id).lower()}"
                     await cb.message.edit(f"Renaming File Name to `{new_file_name.rsplit('/', 1)[-1]}`")
                     os.rename(merged_vid_path, new_file_name)
@@ -448,7 +461,7 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
             except TimeoutError:
                 await cb.message.edit("Time Up!\nNow I will upload file with default name.")
                 await asyncio.sleep(Config.TIME_GAP)
-            except:
+            except Exception:
                 pass
         await cb.message.edit("Extracting Video Data ...")
         duration = 1
@@ -600,4 +613,11 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
         await cb.message.delete(True)
         await cb.message.reply_to_message.delete(True)
 
-NubBot.run()
+# اجرای ربات با مدیریت خطا
+async def main():
+    await NubBot.start()
+    print("ربات شروع شد!")
+    await asyncio.Event().wait()  # نگه داشتن ربات در حالت اجرا
+
+if __name__ == "__main__":
+    NubBot.run(run_with_retry(NubBot, main))
