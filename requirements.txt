@@ -9,3 +9,5 @@ aiofiles
 psutil
 pyromod
 humanfriendly
+requests
+pytz
