@@ -85,56 +85,7 @@ async def start_handler(bot: Client, m: Message):
         )
     )
 
-@NubBot.on_message(filters.private & (filters.video | filters.document))
-async def videos_handler(bot: Client, m: Message):
-    await AddUserToDatabase(bot, m)
-    Fsub = await ForceSub(bot, m)
-    if Fsub == 400:
-        return
-    media = m.video or m.document
-    if media.file_name is None:
-        await m.reply_text("نام فایل یافت نشد!", quote=True)
-        return
-    if media.file_name.rsplit(".", 1)[-1].lower() not in ["mp4", "mkv", "webm"]:
-        await m.reply_text("این فرمت ویدیو مجاز نیست!\nفقط MP4 یا MKV یا WEBM ارسال کنید.", quote=True)
-        return
-    if QueueDB.get(m.from_user.id) is None:
-        QueueDB[m.from_user.id] = []
-        FormtDB[m.from_user.id] = media.file_name.rsplit(".", 1)[-1].lower()
-    if FormtDB.get(m.from_user.id) and (media.file_name.rsplit(".", 1)[-1].lower() != FormtDB.get(m.from_user.id)):
-        await m.reply_text(f"شما ابتدا یک ویدیوی {FormtDB.get(m.from_user.id).upper()} ارسال کردید، حالا فقط همان نوع ویدیو را ارسال کنید.", quote=True)
-        return
-    input_ = f"{Config.DOWN_PATH}/{m.from_user.id}/input.txt"
-    if os.path.exists(input_):
-        await m.reply_text("متاسفم، یک فرآیند در حال انجام است!\nلطفا اسپم نکنید.", quote=True)
-        return
-    isInGap, sleepTime = await check_time_gap(m.from_user.id)
-    if isInGap:
-        await m.reply_text(f"متاسفم، ارسال سریع مجاز نیست!\nلطفا بعد از `{str(sleepTime)}` ثانیه ویدیو ارسال کنید!", quote=True)
-        return
-    editable = await m.reply_text("لطفا صبر کنید ...", quote=True)
-    MessageText = "خب، حالا ویدیوی بعدی را بفرستید یا دکمه **ادغام کن** را بزنید!"
-    QueueDB[m.from_user.id].append(m.id)
-    if ReplyDB.get(m.from_user.id):
-        await bot.delete_messages(chat_id=m.chat.id, message_ids=ReplyDB.get(m.from_user.id))
-    if len(QueueDB[m.from_user.id]) >= Config.MAX_VIDEOS:
-        MessageText = "خب، حالا فقط دکمه **ادغام کن** را بزنید!"
-        markup = await MakeButtons(bot, m, QueueDB)
-        await editable.edit_text(
-            text=f"متاسفم، حداکثر {str(Config.MAX_VIDEOS)} ویدیو برای ادغام مجاز است!\nحالا دکمه **ادغام کن** را بزنید!",
-            reply_markup=InlineKeyboardMarkup(markup)
-        )
-    else:
-        markup = await MakeButtons(bot, m, QueueDB)
-        await editable.edit_text(text="ویدیوی شما به صف اضافه شد!")
-    reply_ = await m.reply_text(
-        text=f"**به صف اضافه شد!**\n\nتعداد ویدیوها در صف: `{len(QueueDB.get(m.from_user.id, []))}`\nحداکثر ویدیوهای مجاز: `{Config.MAX_VIDEOS}`",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("نمایش صف", callback_data="showQueueFiles")]]
-        ),
-        quote=True
-    )
-    ReplyDB[m.from_user.id] = reply_.id
+
 
 @NubBot.on_message(filters.private & filters.photo)
 async def photo_handler(bot: Client, m: Message):
@@ -182,6 +133,61 @@ async def status_handler(_, m: Message):
         parse_mode="markdown",
         quote=True
     )
+
+@NubBot.on_message(filters.private & (filters.video | filters.document))
+async def videos_handler(bot: Client, m: Message):
+    await AddUserToDatabase(bot, m)
+    Fsub = await ForceSub(bot, m)
+    if Fsub == 400:
+        return
+    media = m.video or m.document
+    if media.file_name is None:
+        await m.reply_text("نام فایل یافت نشد!", quote=True)
+        return
+    if media.file_name.rsplit(".", 1)[-1].lower() not in ["mp4", "mkv", "webm"]:
+        await m.reply_text("این فرمت ویدیو مجاز نیست!\nفقط MP4 یا MKV یا WEBM ارسال کنید.", quote=True)
+        return
+    if QueueDB.get(m.from_user.id) is None:
+        QueueDB[m.from_user.id] = []
+        FormtDB[m.from_user.id] = media.file_name.rsplit(".", 1)[-1].lower()
+    if FormtDB.get(m.from_user.id) and (media.file_name.rsplit(".", 1)[-1].lower() != FormtDB.get(m.from_user.id)):
+        await m.reply_text(f"شما ابتدا یک ویدیوی {FormtDB.get(m.from_user.id).upper()} ارسال کردید، حالا فقط همان نوع ویدیو را ارسال کنید.", quote=True)
+        return
+    input_ = f"{Config.DOWN_PATH}/{m.from_user.id}/input.txt"
+    if os.path.exists(input_):
+        await m.reply_text("متاسفم، یک فرآیند در حال انجام است!\nلطفا اسپم نکنید.", quote=True)
+        return
+    isInGap, sleepTime = await check_time_gap(m.from_user.id)
+    if isInGap:
+        await m.reply_text(f"متاسفم، ارسال سریع مجاز نیست!\nلطفا بعد از `{str(sleepTime)}` ثانیه ویدیو ارسال کنید!", quote=True)
+        return
+    editable = await m.reply_text("لطفا صبر کنید ...", quote=True)
+    MessageText = "خب، حالا ویدیوی بعدی را بفرستید یا دکمه **ادغام کن** را بزنید!"
+    QueueDB[m.from_user.id].append(m.id)
+    if ReplyDB.get(m.from_user.id):
+        await bot.delete_messages(chat_id=m.chat.id, message_ids=ReplyDB.get(m.from_user.id))
+    if len(QueueDB[m.from_user.id]) >= Config.MAX_VIDEOS:
+        MessageText = "خب، حالا فقط دکمه **ادغام کن** را بزنید!"
+        markup = await MakeButtons(bot, m, QueueDB)
+        await editable.edit_text(
+            text=f"متاسفم، حداکثر {str(Config.MAX_VIDEOS)} ویدیو برای ادغام مجاز است!\nحالا دکمه **ادغام کن** را بزنید!",
+            reply_markup=markup  # مستقیماً از markup استفاده می‌شود
+        )
+    else:
+        markup = await MakeButtons(bot, m, QueueDB)
+        await editable.edit_text(
+            text="ویدیوی شما به صف اضافه شد!",
+            reply_markup=markup  # مستقیماً از markup استفاده می‌شود
+        )
+    reply_ = await m.reply_text(
+        text=f"**به صف اضافه شد!**\n\nتعداد ویدیوها در صف: `{len(QueueDB.get(m.from_user.id, []))}`\nحداکثر ویدیوهای مجاز: `{Config.MAX_VIDEOS}`",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("نمایش صف", callback_data="showQueueFiles")]]
+        ),
+        quote=True
+    )
+    ReplyDB[m.from_user.id] = reply_.id
+
 
 @NubBot.on_message(filters.private & filters.command("check") & filters.user(Config.BOT_OWNER))
 async def check_handler(bot: Client, m: Message):
