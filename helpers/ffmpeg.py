@@ -11,409 +11,90 @@ from configs import Config
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 from pyrogram.errors import MessageNotModified
+from configs import Config
+from pyrogram.types import Message
 
-# Configure logging
+
 logger = logging.getLogger(__name__)
 
-async def get_video_info(video_file: str) -> Optional[dict]:
-    """
-    Get video file information using ffprobe.
 
-    Args:
-        video_file: Path to the video file.
+async def MergeVideo(input_file: str, user_id: int, message: Message, format_: str):
+    output_vid = os.path.join(
+        Config.DOWN_PATH, str(user_id), f"Merged_{int(time.time())}.{format_.lower()}"
+    )
 
-    Returns:
-        dict: Video info (streams, format) or None if failed.
-    """
+    cmd = [
+        "ffmpeg", "-f", "concat", "-safe", "0",
+        "-i", input_file, "-c", "copy", output_vid
+    ]
+
     try:
-        cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_format",
-            "-show_streams",
-            "-print_format",
-            "json",
-            video_file
-        ]
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
-        stderr_str = stderr.decode("utf-8").strip()
-        if process.returncode != 0:
-            logger.error(f"ffprobe failed for {video_file}: {stderr_str}")
-            return None
-        return json.loads(stdout.decode("utf-8"))
-    except FileNotFoundError:
-        logger.error("ffprobe executable not found")
-        return None
-    except Exception as e:
-        logger.error(f"ffprobe error for {video_file}: {e}")
-        return None
-
-async def MergeVideo(
-    input_file: str,
-    user_id: str,
-    message: Message,
-    format_: str = "mkv"
-) -> Optional[str]:
-    """
-    Merge multiple video files into one using FFmpeg.
-
-    Args:
-        input_file: Path to the input text file listing video files.
-        user_id: User identifier for directory structure.
-        message: Pyrogram Message object to update progress.
-        format_: Output file extension (default: 'mkv').
-
-    Returns:
-        Path to the merged video file or None if failed.
-    """
-    output_dir = f"{Config.DOWN_PATH}/{user_id}"
-    output_file = os.path.join(output_dir, f"[@Savior_99]_Merged.{format_.lower()}")
-
-    # Check input file existence
-    if not os.path.exists(input_file):
-        logger.error(f"Input file {input_file} does not exist")
-        await message.edit_text(
-            "فایل ورودی یافت نشد!",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
-    # Check disk space
-    total, used, free = shutil.disk_usage(Config.DOWN_PATH)
-    if free < 2_000_000_000:  # Less than 2GB free
-        logger.error(f"Insufficient disk space: {free} bytes free")
-        await message.edit_text(
-            "فضای دیسک کافی نیست! لطفاً حداقل 2 گیگابایت فضای ذخیره‌سازی آزاد کنید.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
-    # Check memory and CPU
-    memory = psutil.virtual_memory()
-    if memory.available < 1_000_000_000:  # Less than 1GB free
-        logger.error(f"Insufficient memory: {memory.available} bytes free")
-        await message.edit_text(
-            "حافظه کافی نیست! لطفاً حداقل 1 گیگابایت حافظه آزاد کنید.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-    cpu_usage = psutil.cpu_percent()
-    if cpu_usage > 95:
-        logger.warning(f"High CPU usage: {cpu_usage}%")
-        await message.edit_text(
-            "بار پردازشی سرور بسیار بالاست! لطفاً چند دقیقه صبر کنید و دوباره امتحان کنید.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
-    # Ensure output directory exists and has write permissions
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, "test.txt"), "w") as f:
-            f.write("test")
-        os.remove(os.path.join(output_dir, "test.txt"))
-    except PermissionError:
-        logger.error(f"No write permission in directory {output_dir}")
-        await message.edit_text(
-            "مجوز نوشتن در مسیر ذخیره‌سازی وجود ندارد! لطفاً مجوزها را بررسی کنید.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
-    # Validate input video files
-    try:
-        with open(input_file, "r") as f:
-            video_files = [line.strip().replace("file ", "").strip("'") for line in f if line.strip()]
-        if not video_files:
-            logger.error("No video files listed in input file")
-            await message.edit_text(
-                "هیچ فایل ویدیویی در لیست ورودی یافت نشد!",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return None
-
-        # Get video info for first file to set reference resolution and frame rate
-        first_video_info = await get_video_info(video_files[0])
-        if not first_video_info:
-            logger.error(f"Invalid first video file: {video_files[0]}")
-            await message.edit_text(
-                f"فایل ویدیویی {video_files[0]} خراب یا نامعتبر است!",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return None
-
-        video_stream = next(
-            (stream for stream in first_video_info.get("streams", []) if stream.get("codec_type") == "video"),
-            None
-        )
-        if not video_stream:
-            logger.error(f"No video stream in {video_files[0]}")
-            await message.edit_text(
-                f"فایل {video_files[0]} جریان ویدیویی ندارد!",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return None
-
-        width = video_stream.get("width", 1280)
-        height = video_stream.get("height", 720)
-        frame_rate = eval(video_stream.get("r_frame_rate", "30/1"))  # Safely evaluate frame rate (e.g., "30/1")
-
-        # Validate other video files
-        for video in video_files[1:]:
-            if not os.path.exists(video):
-                logger.error(f"Video file {video} does not exist")
-                await message.edit_text(
-                    f"فایل ویدیویی {video} یافت نشد!",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                return None
-            video_info = await get_video_info(video)
-            if not video_info:
-                logger.error(f"Invalid video file: {video}")
-                await message.edit_text(
-                    f"فایل ویدیویی {video} خراب یا نامعتبر است!",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                return None
-
-    except Exception as e:
-        logger.error(f"Failed to read input file {input_file}: {e}")
-        await message.edit_text(
-            f"خطا در خواندن فایل ورودی: `{e}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
-    # FFmpeg command with scale filter to unify resolution
-    file_generator_command = [
-        "ffmpeg",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        input_file,
-        "-vf",
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={frame_rate}",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-c:a",
-        "aac",
-        "-y",
-        output_file
-    ]
-
-    try:
-        await message.edit_text(
-            "در حال ادغام ویدیوها...\nلطفاً صبور باشید...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
-
-        process = await asyncio.create_subprocess_exec(
-            *file_generator_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        stdout_str = stdout.decode("utf-8").strip()
-        stderr_str = stderr.decode("utf-8").strip()
-        logger.debug(f"FFmpeg stdout: {stdout_str}")
-        logger.debug(f"FFmpeg stderr: {stderr_str}")
-
-        if process.returncode != 0:
-            logger.error(f"FFmpeg failed with error: {stderr_str}")
-            await message.edit_text(
-                f"خطا در ادغام ویدیوها: `{stderr_str[:1000]}`",  # Limit length for Telegram
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return None
-
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-            logger.info(f"Merged video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
-            return output_file
-
-        logger.error("Failed to create merged video file")
-        await message.edit_text(
-            "خطا در ایجاد فایل ویدیویی ادغام‌شده! فایل خروجی یافت نشد یا خالی است.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
-
     except NotImplementedError:
-        logger.error("FFmpeg not supported on this platform")
-        await message.edit_text(
-            "اجرای دستور FFmpeg ممکن نیست! خطای `NotImplementedError` رخ داد.\n"
-            "لطفاً بات را در محیط لینوکس/یونیکس اجرا کنید.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        await message.edit("❌ اجرای دستور FFmpeg پشتیبانی نمی‌شود. لطفاً روی محیط Linux/Unix اجرا کنید.")
+        await asyncio.sleep(5)
         return None
 
-    except FileNotFoundError:
-        logger.error("FFmpeg executable not found")
-        await message.edit_text(
-            "اجرای FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
+    await message.edit("🔄 در حال ادغام ویدیوها... لطفاً صبور باشید.")
+    stdout, stderr = await process.communicate()
+    print(stderr.decode(), stdout.decode())
 
-    except MessageNotModified:
-        logger.debug("Message edit skipped due to MessageNotModified")
-        pass
+    if os.path.exists(output_vid):
+        return output_vid
+    return None
 
-    except Exception as e:
-        logger.error(f"MergeVideo failed: {e}")
-        await message.edit_text(
-            f"خطا در ادغام ویدیو: `{e}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return None
 
-async def cult_small_video(
-    video_file: str,
-    output_directory: str,
-    start_time: int,
-    end_time: int,
-    format_: str
-) -> Optional[str]:
-    """
-    Create a short sample video clip.
+async def cut_small_video(video_file, output_dir, start_time, end_time, format_):
+    out_file = os.path.join(output_dir, f"{int(time.time())}.{format_.lower()}")
 
-    Args:
-        video_file: Path to input video.
-        output_directory: Directory to save the output file.
-        start_time: Start time for the clip in seconds.
-        end_time: End time for the clip in seconds.
-        format_: File extension (e.g., 'mp4', 'mkv').
-
-    Returns:
-        Path to the sample video or None if failed.
-    """
-    output_file = os.path.join(output_directory, f"{round(time.time())}.{format_.lower()}")
-    file_generator_command = [
-        "ffmpeg",
-        "-i",
-        video_file,
-        "-ss",
-        str(start_time),
-        "-to",
-        str(end_time),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-c:a",
-        "aac",
-        "-y",
-        output_file
+    cmd = [
+        "ffmpeg", "-i", video_file,
+        "-ss", str(start_time), "-to", str(end_time),
+        "-async", "1", "-strict", "-2",
+        out_file
     ]
 
-    try:
-        video_info = await get_video_info(video_file)
-        if not video_info:
-            logger.error(f"Invalid video file: {video_file}")
-            return None
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    print(stderr.decode(), stdout.decode())
 
-        logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
-        process = await asyncio.create_subprocess_exec(
-            *file_generator_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        stdout_str = stdout.decode("utf-8").strip()
-        stderr_str = stderr.decode("utf-8").strip()
-        logger.debug(f"FFmpeg stdout: {stdout_str}")
-        logger.debug(f"FFmpeg stderr: {stderr_str}")
+    if os.path.exists(out_file):
+        return out_file
+    return None
 
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-            logger.info(f"Sample video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
-            return output_file
 
-        logger.error(f"Failed to create sample video: {stderr_str}")
-        return None
+async def generate_screenshots(video_file, output_dir, photo_count, duration):
+    images = []
+    step = duration // photo_count
+    current = step
 
-    except FileNotFoundError:
-        logger.error("FFmpeg executable not found")
-        return None
-
-    except Exception as e:
-        logger.error(f"Failed to create sample video: {e}")
-        return None
-
-async def generate_screen_shots(
-    video_file: str,
-    output_directory: str,
-    no_of_photos: int,
-    duration: int
-) -> List[str]:
-    """
-    Generate screenshots from a video.
-
-    Args:
-        video_file: Path to input video.
-        output_directory: Directory to save screenshots.
-        no_of_photos: Number of screenshots to generate.
-        duration: Duration of the video in seconds.
-
-    Returns:
-        List of screenshot file paths.
-    """
-    images: List[str] = []
-    ttl_step = duration // no_of_photos if no_of_photos > 0 else duration
-    current_ttl = ttl_step
-
-    video_info = await get_video_info(video_file)
-    if not video_info:
-        logger.error(f"Invalid video file: {video_file}")
-        return images
-
-    for _ in range(no_of_photos):
+    for _ in range(photo_count):
         await asyncio.sleep(1)
-        video_thumbnail = os.path.join(output_directory, f"{round(time.time())}.jpg")
-        file_generator_command = [
-            "ffmpeg",
-            "-ss",
-            str(round(current_ttl)),
-            "-i",
-            video_file,
-            "-vframes",
-            "1",
-            "-y",
-            video_thumbnail
+        img_path = os.path.join(output_dir, f"{int(time.time())}.jpg")
+
+        cmd = [
+            "ffmpeg", "-ss", str(current),
+            "-i", video_file, "-vframes", "1", img_path
         ]
 
-        try:
-            logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
-            process = await asyncio.create_subprocess_exec(
-                *file_generator_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            stdout_str = stdout.decode("utf-8").strip()
-            stderr_str = stderr.decode("utf-8").strip()
-            logger.debug(f"FFmpeg stdout: {stdout_str}")
-            logger.debug(f"FFmpeg stderr: {stderr_str}")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        print(stderr.decode(), stdout.decode())
 
-            if os.path.exists(video_thumbnail) and os.path.getsize(video_thumbnail) > 0:
-                images.append(video_thumbnail)
-            current_ttl += ttl_step
-
-        except FileNotFoundError:
-            logger.error("FFmpeg executable not found")
-            continue
-
-        except Exception as e:
-            logger.error(f"Failed to generate screenshot: {e}")
-            continue
+        images.append(img_path)
+        current += step
 
     return images
+    
