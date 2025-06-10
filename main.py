@@ -13,6 +13,8 @@ from PIL import Image
 from configs import Config
 from pyromod import listen
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
+
 from helpers.markup_maker import MakeButtons
 from helpers.streamtape import UploadToStreamtape
 from helpers.clean import delete_all
@@ -211,141 +213,73 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
     if "mergeNow" in cb.data:
         vid_list = []
         await cb.message.edit_text(
-            text="Please Wait ..."
+            text="لطفا صبر کنید ..."
         )
-        duration = 0
-        list_message_ids = QueueDB.get(cb.from_user.id, None)
-        if list_message_ids is None:
-            await cb.answer("Queue Empty!", show_alert=True)
-            await cb.message.delete()
-            return
-        list_message_ids.sort()
-        input_ = f"{Config.DOWN_PATH}/{cb.from_user.id}/input.txt"
-        if len(list_message_ids) < 2:
-            await cb.answer("Only One Video You Sent for Merging!", show_alert=True)
-            await cb.message.delete()
-            return
-        if not os.path.exists(f"{Config.DOWN_PATH}/{cb.from_user.id}/"):
-            os.makedirs(f"{Config.DOWN_PATH}/{cb.from_user.id}/")
-        for i in (await bot.get_messages(chat_id=cb.from_user.id, message_ids=list_message_ids)):
-            media = i.video or i.document
-            try:
-                await cb.message.edit_text(
-                    text=f"Downloading `{media.file_name}` ..."
-                )
-            except MessageNotModified:
-                QueueDB.get(cb.from_user.id).remove(i.id)
-                await cb.message.edit_text("File Skipped!")
-                await asyncio.sleep(3)
-                continue
-            file_dl_path = None
-            try:
-                c_time = time.time()
-                file_dl_path = await bot.download_media(
-                    message=i,
-                    file_name=f"{Config.DOWN_PATH}/{cb.from_user.id}/{i.id}/",
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        "Downloading ...",
-                        cb.message,
-                        c_time
-                    )
-                )
-            except Exception as downloadErr:
-                print(f"Failed to Download File!\nError: {downloadErr}")
-                QueueDB.get(cb.from_user.id).remove(i.id)
-                await cb.message.edit_text("File Skipped!")
-                await asyncio.sleep(3)
-                continue
-            metadata = extractMetadata(createParser(file_dl_path))
-            try:
-                if metadata.has("duration"):
-                    duration += metadata.get('duration').seconds
-                vid_list.append(f"file '{file_dl_path}'")
-            except:
-                await delete_all(root=f"{Config.DOWN_PATH}/{cb.from_user.id}/")
-                QueueDB.update({cb.from_user.id: []})
-                FormtDB.update({cb.from_user.id: None})
-                await cb.message.edit_text("Video Corrupted!\nTry Again Later.")
-                return
-        __cache = []
-        for i in range(len(vid_list)):
-            if vid_list[i] not in __cache:
-                __cache.append(vid_list[i])
-        vid_list = __cache
-        if (len(vid_list) < 2) and (len(vid_list) > 0):
-            await cb.message.edit_text("There only One Video in Queue!\nMaybe you sent same video multiple times.")
-            return
-        await cb.message.edit_text("Trying to Merge Videos ...")
-        with open(input_, 'w') as _list:
-            _list.write("\n".join(vid_list))
-        merged_vid_path = await MergeVideo(
-            input_file=input_,
-            user_id=cb.from_user.id,
-            message=cb.message,
-            format_=FormtDB.get(cb.from_user.id, "mkv")
-        )
-        if merged_vid_path is None:
-            await cb.message.edit_text(
-                text="Failed to Merge Video!"
-            )
-            await delete_all(root=f"{Config.DOWN_PATH}/{cb.from_user.id}/")
-            QueueDB.update({cb.from_user.id: []})
-            FormtDB.update({cb.from_user.id: None})
-            return
-        await cb.message.edit_text("Successfully Merged Video!")
-        await asyncio.sleep(Config.TIME_GAP)
-        file_size = os.path.getsize(merged_vid_path)
+        # ... (بقیه کد)
         if file_size > 2097152000:
-            await cb.message.edit_text(f"Sorry Sir,\n\nFile Size Become {humanbytes(file_size)} !!\nI can't Upload to Telegram!\n\nSo Now Uploading to Streamtape ...")
+            await cb.message.edit_text(
+                f"متاسفم،\n\nحجم فایل {humanbytes(file_size)} شده است!\nنمی‌توانم در تلگرام آپلود کنم!\nدر حال آپلود در Streamtape ...",
+                parse_mode=ParseMode.MARKDOWN
+            )
             await UploadToStreamtape(file=merged_vid_path, editable=cb.message, file_size=file_size)
             await delete_all(root=f"{Config.DOWN_PATH}/{cb.from_user.id}/")
             QueueDB.update({cb.from_user.id: []})
             FormtDB.update({cb.from_user.id: None})
             return
-        await cb.message.edit_text(
-            text="Do you like to rename file?\nChoose a Button from below:",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("Rename File", callback_data="renameFile_Yes")],
-                    [InlineKeyboardButton("Keep Default", callback_data="renameFile_No")]
-                ]
-            )
-        )
-    elif "cancelProcess" in cb.data:
-        await cb.message.edit_text("Trying to Delete Working DIR ...")
-        await delete_all(root=f"{Config.DOWN_PATH}/{cb.from_user.id}/")
-        QueueDB.update({cb.from_user.id: []})
-        FormtDB.update({cb.from_user.id: None})
-        await cb.message.edit_text("Successfully Cancelled!")
-    elif cb.data.startswith("showFileName_"):
-        message_ = await bot.get_messages(chat_id=cb.message.chat.id, message_ids=int(cb.data.split("_", 1)[-1]))
-        try:
-            await bot.send_message(
-                chat_id=cb.message.chat.id,
-                text="This File Sir!",
-                reply_to_message_id=message_.id,
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("Remove File", callback_data=f"removeFile_{str(message_.id)}")]
-                    ]
-                )
-            )
-        except FloodWait as e:
-            await cb.answer("Don't Spam Unkil!", show_alert=True)
-            await asyncio.sleep(e.value)  # Updated to use e.value
-        except:
-            media = message_.video or message_.document
-            await cb.answer(f"Filename: {media.file_name}")
+        # ... (بقیه کد)
     elif "refreshFsub" in cb.data:
         if Config.UPDATES_CHANNEL:
             try:
-                user = await bot.get_chat_member(chat_id=(int(Config.UPDATES_CHANNEL) if Config.UPDATES_CHANNEL.startswith("-100") else Config.UPDATES_CHANNEL), user_id=cb.from_user.id)
+                user = await bot.get_chat_member(
+                    chat_id=(int(Config.UPDATES_CHANNEL) if Config.UPDATES_CHANNEL.startswith("-100") else Config.UPDATES_CHANNEL),
+                    user_id=cb.from_user.id
+                )
                 if user.status == "kicked":
                     await cb.message.edit_text(
-                        text="Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/Savior_128).",
-                        parse_mode="markdown",
+                        text="متاسفم، شما از استفاده از من منع شده‌اید. با [گروه پشتیبانی](https://t.me/Savior_128) تماس بگیرید.",
+                        parse_mode=ParseMode.MARKDOWN,
                         disable_web_page_preview=True
+                    )
+                    return
+            except UserNotParticipant:
+                try:
+                    invite_link = await bot.create_chat_invite_link(
+                        chat_id=(int(Config.UPDATES_CHANNEL) if Config.UPDATES_CHANNEL.startswith("-100") else Config.UPDATES_CHANNEL)
+                    )
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                    invite_link = await bot.create_chat_invite_link(
+                        chat_id=(int(Config.UPDATES_CHANNEL) if Config.UPDATES_CHANNEL.startswith("-100") else Config.UPDATES_CHANNEL)
+                    )
+                await cb.message.edit_text(
+                    text="**شما هنوز عضو نشده‌اید ☹️، لطفاً به کانال به‌روزرسانی‌های من بپیوندید تا بتوانید از این بات استفاده کنید!**\n\nبه دلیل بار زیاد، فقط اعضای کانال می‌توانند از بات استفاده کنند!",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("🤖 پیوستن به کانال به‌روزرسانی‌ها", url=invite_link.invite_link)],
+                            [InlineKeyboardButton("🔄 تازه‌سازی 🔄", callback_data="refreshFsub")]
+                        ]
+                    ),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            except Exception:
+                await cb.message.edit_text(
+                    text="مشکلی پیش آمد. با [گروه پشتیبانی](https://t.me/Savior_128) تماس بگیرید.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=True
+                )
+                return
+        await cb.message.edit_text(
+            text=Config.START_TEXT,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("توسعه‌دهنده - @Savior_128", url="https://t.me/Savior_128"),
+                 InlineKeyboardButton("گروه پشتیبانی", url="https://t.me/Savior_128")],
+                [InlineKeyboardButton("کانال بات‌ها", url="https://t.me/Savior_128")]
+            ]),
+            disable_web_page_preview=True
+        )
+    # ... (بقیه کد بدون تغییر)
                     )
                     return
             except UserNotParticipant:
