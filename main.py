@@ -93,47 +93,42 @@ async def videos_handler(bot: Client, m: Message):
         return
     media = m.video or m.document
     if media.file_name is None:
-        await m.reply_text("File Name Not Found!")
+        await m.reply_text("نام فایل یافت نشد!", quote=True)
         return
     if media.file_name.rsplit(".", 1)[-1].lower() not in ["mp4", "mkv", "webm"]:
-        await m.reply_text("This Video Format not Allowed!\nOnly send MP4 or MKV or WEBM.", quote=True)
+        await m.reply_text("این فرمت ویدیو مجاز نیست!\nفقط MP4 یا MKV یا WEBM ارسال کنید.", quote=True)
         return
-    if QueueDB.get(m.from_user.id, None) is None:
-        FormtDB.update({m.from_user.id: media.file_name.rsplit(".", 1)[-1].lower()})
-    if (FormtDB.get(m.from_user.id, None) is not None) and (media.file_name.rsplit(".", 1)[-1].lower() != FormtDB.get(m.from_user.id)):
-        await m.reply_text(f"First you sent a {FormtDB.get(m.from_user.id).upper()} video so now send only that type of video.", quote=True)
+    if QueueDB.get(m.from_user.id) is None:
+        QueueDB[m.from_user.id] = []
+        FormtDB[m.from_user.id] = media.file_name.rsplit(".", 1)[-1].lower()
+    if FormtDB.get(m.from_user.id) and (media.file_name.rsplit(".", 1)[-1].lower() != FormtDB.get(m.from_user.id)):
+        await m.reply_text(f"شما ابتدا یک ویدیوی {FormtDB.get(m.from_user.id).upper()} ارسال کردید، حالا فقط همان نوع ویدیو را ارسال کنید.", quote=True)
         return
     input_ = f"{Config.DOWN_PATH}/{m.from_user.id}/input.txt"
     if os.path.exists(input_):
-        await m.reply_text("Sorry Unkil,\nAlready One in Progress!\nDon't Spam Plox.")
+        await m.reply_text("متاسفم، یک فرآیند در حال انجام است!\nلطفا اسپم نکنید.", quote=True)
         return
     isInGap, sleepTime = await check_time_gap(m.from_user.id)
     if isInGap:
-        await m.reply_text(f"Sorry Sir,\nNo Flooding Allowed!\nSend Video After `{str(sleepTime)}s` !!", quote=True)
-    else:
-        editable = await m.reply_text("Please Wait ...", quote=True)
-        MessageText = "Okay,\nNow Send Me Next Video or Press **Merge Now** Button!"
-        if QueueDB.get(m.from_user.id, None) is None:
-            QueueDB.update({m.from_user.id: []})
-        if (len(QueueDB.get(m.from_user.id)) >= 0) and (len(QueueDB.get(m.from_user.id)) <= Config.MAX_VIDEOS):
-            QueueDB.get(m.from_user.id).append(m.id)  # Changed from message_id to id
-            if ReplyDB.get(m.from_user.id, None) is not None:
-                await bot.delete_messages(chat_id=m.chat.id, message_ids=ReplyDB.get(m.from_user.id))
-            if FormtDB.get(m.from_user.id, None) is None:
-                FormtDB.update({m.from_user.id: media.file_name.rsplit(".", 1)[-1].lower()})
-            await asyncio.sleep(Config.TIME_GAP)
-            if len(QueueDB.get(m.from_user.id)) == Config.MAX_VIDEOS:
-                MessageText = "Okay Unkil, Now Just Press **Merge Now** Button Plox!"
-            markup = await MakeButtons(bot, m, QueueDB)
-            await editable.edit_text(text="Your Video Added to Queue!")
-            reply_ = await m.reply_text(
-    text=f"**Added to Queue!**\n\nTotal Videos in Queue: `{len(QueueDB.get(user_id, []))}`\nMax Videos Allowed: `{Config.MAX_VIDEOS}`",
-    reply_markup=InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Show Queue", callback_data="showQueueFiles")]]
-    ),
-    quote=True
-)
-            ReplyDB.update({m.from_user.id: reply_.id})
+        await m.reply_text(f"متاسفم، ارسال سریع مجاز نیست!\nلطفا بعد از `{str(sleepTime)}` ثانیه ویدیو ارسال کنید!", quote=True)
+        return
+    editable = await m.reply_text("لطفا صبر کنید ...", quote=True)
+    MessageText = "خب، حالا ویدیوی بعدی را بفرستید یا دکمه **ادغام کن** را بزنید!"
+    QueueDB[m.from_user.id].append(m.id)
+    if ReplyDB.get(m.from_user.id):
+        await bot.delete_messages(chat_id=m.chat.id, message_ids=ReplyDB.get(m.from_user.id))
+    if len(QueueDB[m.from_user.id]) == Config.MAX_VIDEOS:
+        MessageText = "خب، حالا فقط دکمه **ادغام کن** را بزنید!"
+    markup = await MakeButtons(bot, m, QueueDB)
+    await editable.edit_text(text="ویدیوی شما به صف اضافه شد!")
+    reply_ = await m.reply_text(
+        text=f"**به صف اضافه شد!**\n\nتعداد ویدیوها در صف: `{len(QueueDB.get(m.from_user.id, []))}`\nحداکثر ویدیوهای مجاز: `{Config.MAX_VIDEOS}`",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("نمایش صف", callback_data="showQueueFiles")]]
+        ),
+        quote=True
+    )
+    ReplyDB[m.from_user.id] = reply_.id
         elif len(QueueDB.get(m.from_user.id)) > Config.MAX_VIDEOS:
             markup = await MakeButtons(bot, m, QueueDB)
             await editable.edit_text(
