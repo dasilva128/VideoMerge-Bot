@@ -4,18 +4,27 @@ from configs import Config
 GAP = {}
 
 
-async def CheckTimeGap(user_id: int):
-    """A Function for checking user time gap!
-    :parameter user_id Telegram User ID"""
+async def check_time_gap(user_id: int) -> tuple[bool, int | None]:
+    """
+    Check if the user is within the time gap for sending videos.
 
-    if str(user_id) in GAP:
-        current_time = time.time()
-        previous_time = GAP[str(user_id)]
-        if round(current_time - previous_time) < Config.TIME_GAP:
-            return True, round(previous_time - current_time + Config.TIME_GAP)
-        elif round(current_time - previous_time) >= Config.TIME_GAP:
-            del GAP[str(user_id)]
-            return False, None
-    elif str(user_id) not in GAP:
-        GAP[str(user_id)] = time.time()
-        return False, None
+    Args:
+        user_id: Telegram User ID
+
+    Returns:
+        Tuple containing:
+        - bool: True if the user is within the time gap, False otherwise
+        - int or None: Remaining seconds until the gap is cleared, or None if no gap
+    """
+    user_id_str = str(user_id)
+    current_time = time.time()
+
+    if user_id_str in GAP:
+        previous_time = GAP[user_id_str]
+        time_diff = round(current_time - previous_time)
+        if time_diff < Config.TIME_GAP:
+            return True, round(Config.TIME_GAP - time_diff)
+        else:
+            del GAP[user_id_str]
+    GAP[user_id_str] = current_time
+    return False, None

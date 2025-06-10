@@ -1,16 +1,20 @@
 # (c) @AbirHasan2005
 
 import shutil
+import os
 
 
-async def delete_all(root: str):
+async def delete_all(root: str) -> None:
     """
-    Delete a Folder.
+    Delete a folder and its contents.
 
-    :param root: Pass Folder Path as String.
+    Args:
+        root (str): Path to the folder to delete.
     """
-
     try:
-        shutil.rmtree(root)
+        if os.path.exists(root):
+            shutil.rmtree(root, ignore_errors=True)
+        else:
+            print(f"Directory {root} does not exist.")
     except Exception as e:
-        print(e)
+        print(f"Error deleting directory {root}: {e}")
