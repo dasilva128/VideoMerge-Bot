@@ -1,6 +1,3 @@
-# (c) Shrimadhav U K & @Savior_99
-# FFmpeg helper functions for media processing
-# Rewritten and optimized for use with Pyrogram 2.0.106 on June 10, 2025
 
 import asyncio
 import os
@@ -8,7 +5,7 @@ import time
 import logging
 import shutil
 import psutil
-import subprocess
+import json
 from typing import List, Optional
 from configs import Config
 from pyrogram.types import Message
@@ -18,34 +15,44 @@ from pyrogram.errors import MessageNotModified
 # Configure logging
 logger = logging.getLogger(__name__)
 
-async def validate_video_file(video_file: str) -> bool:
+async def get_video_info(video_file: str) -> Optional[dict]:
     """
-    Validate a video file using ffprobe.
+    Get video file information using ffprobe.
 
     Args:
         video_file: Path to the video file.
 
     Returns:
-        bool: True if valid, False otherwise.
+        dict: Video info (streams, format) or None if failed.
     """
     try:
-        cmd = ["ffprobe", "-v", "error", "-show_format", "-show_streams", video_file]
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_format",
+            "-show_streams",
+            "-print_format",
+            "json",
+            video_file
+        ]
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await process.communicate()
+        stdout, stderr = await process.communicate()
+        stderr_str = stderr.decode("utf-8").strip()
         if process.returncode != 0:
-            logger.error(f"ffprobe failed for {video_file}: {stderr.decode('utf-8').strip()}")
-            return False
-        return True
+            logger.error(f"ffprobe failed for {video_file}: {stderr_str}")
+            return None
+        return json.loads(stdout.decode("utf-8"))
     except FileNotFoundError:
         logger.error("ffprobe executable not found")
-        return False
+        return None
     except Exception as e:
         logger.error(f"ffprobe error for {video_file}: {e}")
-        return False
+        return None
 
 async def MergeVideo(
     input_file: str,
@@ -79,28 +86,28 @@ async def MergeVideo(
 
     # Check disk space
     total, used, free = shutil.disk_usage(Config.DOWN_PATH)
-    if free < 1_000_000_000:  # Less than 1GB free
+    if free < 2_000_000_000:  # Less than 2GB free
         logger.error(f"Insufficient disk space: {free} bytes free")
         await message.edit_text(
-            "فضای دیسک کافی نیست! لطفاً فضای ذخیره‌سازی را آزاد کنید.",
+            "فضای دیسک کافی نیست! لطفاً حداقل 2 گیگابایت فضای ذخیره‌سازی آزاد کنید.",
             parse_mode=ParseMode.MARKDOWN
         )
         return None
 
     # Check memory and CPU
     memory = psutil.virtual_memory()
-    if memory.available < 500_000_000:  # Less than 500MB free
+    if memory.available < 1_000_000_000:  # Less than 1GB free
         logger.error(f"Insufficient memory: {memory.available} bytes free")
         await message.edit_text(
-            "حافظه کافی نیست! لطفاً حافظه را آزاد کنید.",
+            "حافظه کافی نیست! لطفاً حداقل 1 گیگابایت حافظه آزاد کنید.",
             parse_mode=ParseMode.MARKDOWN
         )
         return None
     cpu_usage = psutil.cpu_percent()
-    if cpu_usage > 90:
+    if cpu_usage > 95:
         logger.warning(f"High CPU usage: {cpu_usage}%")
         await message.edit_text(
-            "بار پردازشی سرور بالاست! لطفاً کمی صبر کنید و دوباره امتحان کنید.",
+            "بار پردازشی سرور بسیار بالاست! لطفاً چند دقیقه صبر کنید و دوباره امتحان کنید.",
             parse_mode=ParseMode.MARKDOWN
         )
         return None
@@ -114,7 +121,7 @@ async def MergeVideo(
     except PermissionError:
         logger.error(f"No write permission in directory {output_dir}")
         await message.edit_text(
-            "مجوز نوشتن در مسیر ذخیره‌سازی وجود ندارد!",
+            "مجوز نوشتن در مسیر ذخیره‌سازی وجود ندارد! لطفاً مجوزها را بررسی کنید.",
             parse_mode=ParseMode.MARKDOWN
         )
         return None
@@ -123,7 +130,42 @@ async def MergeVideo(
     try:
         with open(input_file, "r") as f:
             video_files = [line.strip().replace("file ", "").strip("'") for line in f if line.strip()]
-        for video in video_files:
+        if not video_files:
+            logger.error("No video files listed in input file")
+            await message.edit_text(
+                "هیچ فایل ویدیویی در لیست ورودی یافت نشد!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        # Get video info for first file to set reference resolution and frame rate
+        first_video_info = await get_video_info(video_files[0])
+        if not first_video_info:
+            logger.error(f"Invalid first video file: {video_files[0]}")
+            await message.edit_text(
+                f"فایل ویدیویی {video_files[0]} خراب یا نامعتبر است!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        video_stream = next(
+            (stream for stream in first_video_info.get("streams", []) if stream.get("codec_type") == "video"),
+            None
+        )
+        if not video_stream:
+            logger.error(f"No video stream in {video_files[0]}")
+            await message.edit_text(
+                f"فایل {video_files[0]} جریان ویدیویی ندارد!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        width = video_stream.get("width", 1280)
+        height = video_stream.get("height", 720)
+        frame_rate = eval(video_stream.get("r_frame_rate", "30/1"))  # Safely evaluate frame rate (e.g., "30/1")
+
+        # Validate other video files
+        for video in video_files[1:]:
             if not os.path.exists(video):
                 logger.error(f"Video file {video} does not exist")
                 await message.edit_text(
@@ -131,13 +173,15 @@ async def MergeVideo(
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return None
-            if not await validate_video_file(video):
+            video_info = await get_video_info(video)
+            if not video_info:
                 logger.error(f"Invalid video file: {video}")
                 await message.edit_text(
                     f"فایل ویدیویی {video} خراب یا نامعتبر است!",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return None
+
     except Exception as e:
         logger.error(f"Failed to read input file {input_file}: {e}")
         await message.edit_text(
@@ -146,6 +190,7 @@ async def MergeVideo(
         )
         return None
 
+    # FFmpeg command with scale filter to unify resolution
     file_generator_command = [
         "ffmpeg",
         "-f",
@@ -154,11 +199,15 @@ async def MergeVideo(
         "0",
         "-i",
         input_file,
+        "-vf",
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={frame_rate}",
         "-c:v",
-        "libx264",  # Re-encode video to avoid codec issues
+        "libx264",
+        "-preset",
+        "fast",
         "-c:a",
-        "aac",      # Re-encode audio to standard AAC
-        "-y",       # Overwrite output file
+        "aac",
+        "-y",
         output_file
     ]
 
@@ -259,6 +308,8 @@ async def cult_small_video(
         str(end_time),
         "-c:v",
         "libx264",
+        "-preset",
+        "fast",
         "-c:a",
         "aac",
         "-y",
@@ -266,7 +317,8 @@ async def cult_small_video(
     ]
 
     try:
-        if not await validate_video_file(video_file):
+        video_info = await get_video_info(video_file)
+        if not video_info:
             logger.error(f"Invalid video file: {video_file}")
             return None
 
@@ -319,7 +371,8 @@ async def generate_screen_shots(
     ttl_step = duration // no_of_photos if no_of_photos > 0 else duration
     current_ttl = ttl_step
 
-    if not await validate_video_file(video_file):
+    video_info = await get_video_info(video_file)
+    if not video_info:
         logger.error(f"Invalid video file: {video_file}")
         return images
 
