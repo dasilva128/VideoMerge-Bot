@@ -117,10 +117,16 @@ async def videos_handler(bot: Client, m: Message):
     QueueDB[m.from_user.id].append(m.id)
     if ReplyDB.get(m.from_user.id):
         await bot.delete_messages(chat_id=m.chat.id, message_ids=ReplyDB.get(m.from_user.id))
-    if len(QueueDB[m.from_user.id]) == Config.MAX_VIDEOS:
+    if len(QueueDB[m.from_user.id]) >= Config.MAX_VIDEOS:
         MessageText = "خب، حالا فقط دکمه **ادغام کن** را بزنید!"
-    markup = await MakeButtons(bot, m, QueueDB)
-    await editable.edit_text(text="ویدیوی شما به صف اضافه شد!")
+        markup = await MakeButtons(bot, m, QueueDB)
+        await editable.edit_text(
+            text=f"متاسفم، حداکثر {str(Config.MAX_VIDEOS)} ویدیو برای ادغام مجاز است!\nحالا دکمه **ادغام کن** را بزنید!",
+            reply_markup=InlineKeyboardMarkup(markup)
+        )
+    else:
+        markup = await MakeButtons(bot, m, QueueDB)
+        await editable.edit_text(text="ویدیوی شما به صف اضافه شد!")
     reply_ = await m.reply_text(
         text=f"**به صف اضافه شد!**\n\nتعداد ویدیوها در صف: `{len(QueueDB.get(m.from_user.id, []))}`\nحداکثر ویدیوهای مجاز: `{Config.MAX_VIDEOS}`",
         reply_markup=InlineKeyboardMarkup(
@@ -129,12 +135,6 @@ async def videos_handler(bot: Client, m: Message):
         quote=True
     )
     ReplyDB[m.from_user.id] = reply_.id
-        elif len(QueueDB.get(m.from_user.id)) > Config.MAX_VIDEOS:
-            markup = await MakeButtons(bot, m, QueueDB)
-            await editable.edit_text(
-                text=f"Sorry Unkil,\nMax {str(Config.MAX_VIDEOS)} Videos Allowed to Merge Together!\nPress **Merge Now** Button Now!",
-                reply_markup=InlineKeyboardMarkup(markup)
-            )
 
 @NubBot.on_message(filters.private & filters.photo)
 async def photo_handler(bot: Client, m: Message):
