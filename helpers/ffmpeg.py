@@ -1,6 +1,6 @@
 # (c) Shrimadhav U K & @Savior_99
 # FFmpeg helper functions for media processing
-# Rewritten and optimized use with Pyrogram 2.0.106 on June 10, 2025
+# Rewritten and optimized for use with Pyrogram 2.0.106 on June 10, 2025
 
 import asyncio
 import os
@@ -33,7 +33,7 @@ async def MergeVideo(
     Returns:
         Path to the merged video file or None if failed.
     """
-    output_file = f"{Config.MENU_PATH}/{user_id}/[@Savior_99]_Merged.{format_.lower()}"
+    output_file = f"{Config.DOWN_PATH}/{user_id}/[@Savior_99]_Merged.{format_.lower()}"
     file_generator_command = [
         "ffmpeg",
         "-f",
@@ -52,7 +52,7 @@ async def MergeVideo(
 
     try:
         await message.edit_text(
-            "در حال ادغام ویدیوها...\nلطفاً صبور باشید...",
+            "در حال ادغام ویدیوها...\n",
             parse_mode=ParseMode.MARKDOWN
         )
         logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
@@ -99,7 +99,8 @@ async def MergeVideo(
     except FileNotFoundError:
         logger.error("FFmpeg executable not found")
         await message.edit_text(
-            "اجرایک FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است ",            parse_mode=ParseMode.MARKDOWN
+            "اجرای FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است.",
+            parse_mode=ParseMode.MARKDOWN
         )
         return None
 
@@ -109,6 +110,10 @@ async def MergeVideo(
 
     except Exception as e:
         logger.error(f"MergeVideo failed: {e}")
+        await message.edit_text(
+            f"خطا در ادغام ویدیو: `{e}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
         return None
 
 async def cult_small_video(
@@ -122,7 +127,7 @@ async def cult_small_video(
     Create a short sample video clip.
 
     Args:
-        videos_file: Path to input video.
+        video_file: Path to input video.
         output_directory: Directory to save the output file.
         start_time: Start time for the clip in seconds.
         end_time: End time for the clip in seconds.
