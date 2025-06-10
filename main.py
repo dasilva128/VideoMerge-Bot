@@ -127,10 +127,12 @@ async def videos_handler(bot: Client, m: Message):
             markup = await MakeButtons(bot, m, QueueDB)
             await editable.edit_text(text="Your Video Added to Queue!")
             reply_ = await m.reply_text(
-                text=MessageText,
-                reply_markup=InlineKeyboardMarkup(markup),
-                quote=True
-            )
+    text=f"**Added to Queue!**\n\nTotal Videos in Queue: `{len(QueueDB.get(user_id, []))}`\nMax Videos Allowed: `{Config.MAX_VIDEOS}`",
+    reply_markup=InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Show Queue", callback_data="showQueueFiles")]]
+    ),
+    quote=True
+)
             ReplyDB.update({m.from_user.id: reply_.id})
         elif len(QueueDB.get(m.from_user.id)) > Config.MAX_VIDEOS:
             markup = await MakeButtons(bot, m, QueueDB)
