@@ -17,7 +17,7 @@ from helpers.markup_maker import MakeButtons
 from helpers.streamtape import UploadToStreamtape
 from helpers.clean import delete_all
 from hachoir.parser import createParser
-from helpers.check_gap import CheckTimeGap
+from helpers.check_gap import check_time_gap
 from helpers.database.access_db import db
 from helpers.database.add_user import AddUserToDatabase
 from helpers.uploader import UploadVideo
@@ -107,7 +107,7 @@ async def videos_handler(bot: Client, m: Message):
     if os.path.exists(input_):
         await m.reply_text("Sorry Unkil,\nAlready One in Progress!\nDon't Spam Plox.")
         return
-    isInGap, sleepTime = await CheckTimeGap(m.from_user.id)
+    isInGap, sleepTime = await check_time_gap(m.from_user.id)
     if isInGap:
         await m.reply_text(f"Sorry Sir,\nNo Flooding Allowed!\nSend Video After `{str(sleepTime)}s` !!", quote=True)
     else:
