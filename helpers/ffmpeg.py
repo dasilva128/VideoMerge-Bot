@@ -99,7 +99,7 @@ async def MergeVideo(
     except FileNotFoundError:
         logger.error("FFmpeg executable not found")
         await message.edit_text(
-            "اجرایک FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است            parse_mode=ParseMode.MARKDOWN
+            "اجرایک FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است ",            parse_mode=ParseMode.MARKDOWN
         )
         return None
 
