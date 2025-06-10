@@ -1,10 +1,14 @@
-
+# (c) Shrimadhav U K & @Savior_99
+# FFmpeg helper functions for media processing
+# Rewritten and optimized for use with Pyrogram 2.0.106 on June 10, 2025
 
 import asyncio
 import os
 import time
 import logging
 import shutil
+import psutil
+import subprocess
 from typing import List, Optional
 from configs import Config
 from pyrogram.types import Message
@@ -13,6 +17,35 @@ from pyrogram.errors import MessageNotModified
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+async def validate_video_file(video_file: str) -> bool:
+    """
+    Validate a video file using ffprobe.
+
+    Args:
+        video_file: Path to the video file.
+
+    Returns:
+        bool: True if valid, False otherwise.
+    """
+    try:
+        cmd = ["ffprobe", "-v", "error", "-show_format", "-show_streams", video_file]
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0:
+            logger.error(f"ffprobe failed for {video_file}: {stderr.decode('utf-8').strip()}")
+            return False
+        return True
+    except FileNotFoundError:
+        logger.error("ffprobe executable not found")
+        return False
+    except Exception as e:
+        logger.error(f"ffprobe error for {video_file}: {e}")
+        return False
 
 async def MergeVideo(
     input_file: str,
@@ -35,7 +68,7 @@ async def MergeVideo(
     output_dir = f"{Config.DOWN_PATH}/{user_id}"
     output_file = os.path.join(output_dir, f"[@Savior_99]_Merged.{format_.lower()}")
 
-    # Check if input file exists
+    # Check input file existence
     if not os.path.exists(input_file):
         logger.error(f"Input file {input_file} does not exist")
         await message.edit_text(
@@ -54,6 +87,24 @@ async def MergeVideo(
         )
         return None
 
+    # Check memory and CPU
+    memory = psutil.virtual_memory()
+    if memory.available < 500_000_000:  # Less than 500MB free
+        logger.error(f"Insufficient memory: {memory.available} bytes free")
+        await message.edit_text(
+            "حافظه کافی نیست! لطفاً حافظه را آزاد کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+    cpu_usage = psutil.cpu_percent()
+    if cpu_usage > 90:
+        logger.warning(f"High CPU usage: {cpu_usage}%")
+        await message.edit_text(
+            "بار پردازشی سرور بالاست! لطفاً کمی صبر کنید و دوباره امتحان کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
     # Ensure output directory exists and has write permissions
     try:
         os.makedirs(output_dir, exist_ok=True)
@@ -68,7 +119,7 @@ async def MergeVideo(
         )
         return None
 
-    # Read input file to validate video files
+    # Validate input video files
     try:
         with open(input_file, "r") as f:
             video_files = [line.strip().replace("file ", "").strip("'") for line in f if line.strip()]
@@ -77,6 +128,13 @@ async def MergeVideo(
                 logger.error(f"Video file {video} does not exist")
                 await message.edit_text(
                     f"فایل ویدیویی {video} یافت نشد!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return None
+            if not await validate_video_file(video):
+                logger.error(f"Invalid video file: {video}")
+                await message.edit_text(
+                    f"فایل ویدیویی {video} خراب یا نامعتبر است!",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return None
@@ -106,7 +164,7 @@ async def MergeVideo(
 
     try:
         await message.edit_text(
-            "در حال ادغام ویدیوها...\n",
+            "در حال ادغام ویدیوها...\nلطفاً صبور باشید...",
             parse_mode=ParseMode.MARKDOWN
         )
         logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
@@ -136,7 +194,7 @@ async def MergeVideo(
 
         logger.error("Failed to create merged video file")
         await message.edit_text(
-            "خطا در ایجاد فایل ویدیویی ادغام‌شده!",
+            "خطا در ایجاد فایل ویدیویی ادغام‌شده! فایل خروجی یافت نشد یا خالی است.",
             parse_mode=ParseMode.MARKDOWN
         )
         return None
@@ -208,6 +266,10 @@ async def cult_small_video(
     ]
 
     try:
+        if not await validate_video_file(video_file):
+            logger.error(f"Invalid video file: {video_file}")
+            return None
+
         logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
         process = await asyncio.create_subprocess_exec(
             *file_generator_command,
@@ -256,6 +318,10 @@ async def generate_screen_shots(
     images: List[str] = []
     ttl_step = duration // no_of_photos if no_of_photos > 0 else duration
     current_ttl = ttl_step
+
+    if not await validate_video_file(video_file):
+        logger.error(f"Invalid video file: {video_file}")
+        return images
 
     for _ in range(no_of_photos):
         await asyncio.sleep(1)
