@@ -85,7 +85,7 @@ async def start_handler(bot: Client, m: Message):
         )
     )
 
-@NubBot.on_message(filters.private & (filters.video | filters.document) & ~filters.edited)
+@NubBot.on_message(filters.private & (filters.video | filters.document))
 async def videos_handler(bot: Client, m: Message):
     await AddUserToDatabase(bot, m)
     Fsub = await ForceSub(bot, m)
