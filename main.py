@@ -277,10 +277,8 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
                  InlineKeyboardButton("گروه پشتیبانی", url="https://t.me/Savior_128")],
                 [InlineKeyboardButton("کانال بات‌ها", url="https://t.me/Savior_128")]
             ]),
-            disable_web_page_preview=True
-        )
-    # ... (بقیه کد بدون تغییر)
-                    )
+            disable_web_page_preview=True)
+    
                     return
             except UserNotParticipant:
                 try:
