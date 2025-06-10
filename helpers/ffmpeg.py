@@ -1,11 +1,10 @@
-# (c) Shrimadhav U K & @Savior_99
-# FFmpeg helper functions for media processing
-# Rewritten and optimized for use with Pyrogram 2.0.106 on June 10, 2025
+
 
 import asyncio
 import os
 import time
 import logging
+import shutil
 from typing import List, Optional
 from configs import Config
 from pyrogram.types import Message
@@ -33,7 +32,62 @@ async def MergeVideo(
     Returns:
         Path to the merged video file or None if failed.
     """
-    output_file = f"{Config.DOWN_PATH}/{user_id}/[@Savior_99]_Merged.{format_.lower()}"
+    output_dir = f"{Config.DOWN_PATH}/{user_id}"
+    output_file = os.path.join(output_dir, f"[@Savior_99]_Merged.{format_.lower()}")
+
+    # Check if input file exists
+    if not os.path.exists(input_file):
+        logger.error(f"Input file {input_file} does not exist")
+        await message.edit_text(
+            "فایل ورودی یافت نشد!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Check disk space
+    total, used, free = shutil.disk_usage(Config.DOWN_PATH)
+    if free < 1_000_000_000:  # Less than 1GB free
+        logger.error(f"Insufficient disk space: {free} bytes free")
+        await message.edit_text(
+            "فضای دیسک کافی نیست! لطفاً فضای ذخیره‌سازی را آزاد کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Ensure output directory exists and has write permissions
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "test.txt"), "w") as f:
+            f.write("test")
+        os.remove(os.path.join(output_dir, "test.txt"))
+    except PermissionError:
+        logger.error(f"No write permission in directory {output_dir}")
+        await message.edit_text(
+            "مجوز نوشتن در مسیر ذخیره‌سازی وجود ندارد!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Read input file to validate video files
+    try:
+        with open(input_file, "r") as f:
+            video_files = [line.strip().replace("file ", "").strip("'") for line in f if line.strip()]
+        for video in video_files:
+            if not os.path.exists(video):
+                logger.error(f"Video file {video} does not exist")
+                await message.edit_text(
+                    f"فایل ویدیویی {video} یافت نشد!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return None
+    except Exception as e:
+        logger.error(f"Failed to read input file {input_file}: {e}")
+        await message.edit_text(
+            f"خطا در خواندن فایل ورودی: `{e}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
     file_generator_command = [
         "ffmpeg",
         "-f",
@@ -63,20 +117,20 @@ async def MergeVideo(
             stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await process.communicate()
-        stdout_str = stdout.decode().strip()
-        stderr_str = stderr.decode().strip()
+        stdout_str = stdout.decode("utf-8").strip()
+        stderr_str = stderr.decode("utf-8").strip()
         logger.debug(f"FFmpeg stdout: {stdout_str}")
         logger.debug(f"FFmpeg stderr: {stderr_str}")
 
         if process.returncode != 0:
             logger.error(f"FFmpeg failed with error: {stderr_str}")
             await message.edit_text(
-                f"خطا در اجرای FFmpeg: `{stderr_str}`",
+                f"خطا در ادغام ویدیوها: `{stderr_str[:1000]}`",  # Limit length for Telegram
                 parse_mode=ParseMode.MARKDOWN
             )
             return None
 
-        if os.path.exists(output_file):
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
             logger.info(f"Merged video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
             return output_file
 
@@ -166,11 +220,11 @@ async def cult_small_video(
         logger.debug(f"FFmpeg stdout: {stdout_str}")
         logger.debug(f"FFmpeg stderr: {stderr_str}")
 
-        if os.path.exists(output_file):
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
             logger.info(f"Sample video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
             return output_file
 
-        logger.error("Failed to create sample video")
+        logger.error(f"Failed to create sample video: {stderr_str}")
         return None
 
     except FileNotFoundError:
@@ -231,7 +285,7 @@ async def generate_screen_shots(
             logger.debug(f"FFmpeg stdout: {stdout_str}")
             logger.debug(f"FFmpeg stderr: {stderr_str}")
 
-            if os.path.exists(video_thumbnail):
+            if os.path.exists(video_thumbnail) and os.path.getsize(video_thumbnail) > 0:
                 images.append(video_thumbnail)
             current_ttl += ttl_step
 
