@@ -91,14 +91,14 @@ async def broadcast_handler(m: Message):
         await m.reply_text(
             text=f"Broadcast completed in `{completed_in}`\n\nTotal users: {total_users}\nTotal done: {done}, {success} success, {failed} failed.",
             quote=True,
-            parse_mode="markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
     else:
         await m.reply_document(
             document="broadcast.txt",
             caption=f"Broadcast completed in `{completed_in}`\n\nTotal users: {total_users}\nTotal done: {done}, {success} success, {failed} failed.",
             quote=True,
-            parse_mode="markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
     if os.path.exists("broadcast.txt"):
         os.remove("broadcast.txt")

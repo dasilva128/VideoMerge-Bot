@@ -31,7 +31,7 @@ async def ForceSub(bot: Client, cmd: Message) -> int:
         print(f"Unable to create invite link for {Config.UPDATES_CHANNEL}: {err}")
         await cmd.reply_text(
             text="Something went wrong. Contact my [Support Group](https://t.me/Savior_128).",
-            parse_mode="markdown",
+            parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=True
         )
         return 400
@@ -41,7 +41,7 @@ async def ForceSub(bot: Client, cmd: Message) -> int:
         if user.status == "kicked":
             await cmd.reply_text(
                 text="Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/Savior_128).",
-                parse_mode="markdown",
+                parse_mode=ParseMode.MARKDOWN,
                 disable_web_page_preview=True
             )
             return 400
@@ -54,14 +54,14 @@ async def ForceSub(bot: Client, cmd: Message) -> int:
                     [InlineKeyboardButton("🔄 Refresh 🔄", callback_data="refreshFsub")]
                 ]
             ),
-            parse_mode="markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
         return 400
     except Exception as err:
         print(f"Error checking user subscription: {err}")
         await cmd.reply_text(
             text="Something went wrong. Contact my [Support Group](https://t.me/Savior_128).",
-            parse_mode="markdown",
+            parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=True
         )
         return 400

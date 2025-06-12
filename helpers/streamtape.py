@@ -38,7 +38,7 @@ async def UploadToStreamtape(file: str, editable: Message, file_size: int) -> No
             )
             await editable.edit_text(
                 text=text_edit,
-                parse_mode="markdown",
+                parse_mode=ParseMode.MARKDOWN,
                 disable_web_page_preview=True,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open Link", url=download_link)]])
             )
@@ -47,7 +47,7 @@ async def UploadToStreamtape(file: str, editable: Message, file_size: int) -> No
         await editable.edit_text(
             text=f"Sorry, Something went wrong!\n\nCan't Upload to Streamtape. Error: `{e.message}`\n"
                  f"You can report at [Support Group](https://t.me/Savior_128)",
-            parse_mode="markdown",
+            parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=True
         )
     except MessageNotModified:
@@ -57,6 +57,6 @@ async def UploadToStreamtape(file: str, editable: Message, file_size: int) -> No
         await editable.edit_text(
             text=f"Sorry, Something went wrong!\n\nCan't Upload to Streamtape. Error: `{e}`\n"
                  f"You can report at [Support Group](https://t.me/Savior_128)",
-            parse_mode="markdown",
+            parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=True
         )
