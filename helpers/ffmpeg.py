@@ -1,234 +1,461 @@
-# (c) Shrimadhav U K & @AbirHasan2005
-# Updated by Grok 3 for improved functionality and error handling
-
 import asyncio
-import json
 import os
 import time
-from pathlib import Path
-from typing import List, Optional, Tuple
+import logging
+import shutil
+import psutil
+import json
+from typing import List, Optional
 from configs import Config
 from pyrogram.types import Message
+from pyrogram.enums import ParseMode
+from pyrogram.errors import MessageNotModified
 
-async def ensure_directory_exists(directory: str) -> None:
-    """Ensure the output directory exists, create it if it doesn't."""
-    Path(directory).mkdir(parents=True, exist_ok=True)
+# Configure logging
+logger = logging.getLogger(__name__)
 
-async def get_video_info(file_path: str) -> Tuple[Optional[str], Optional[str]]:
-    """Get video and audio codec information using ffprobe."""
-    command = [
-        "ffprobe",
-        "-v", "error",
-        "-show_entries", "stream=codec_name,codec_type",
-        "-of", "json",
-        file_path
-    ]
+async def get_video_info(video_file: str) -> Optional[dict]:
+    """
+    Get video file information using ffprobe.
+
+    Args:
+        video_file: Path to the video file.
+
+    Returns:
+        dict: Video info (streams, format) or None if failed.
+    """
     try:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_format",
+            "-show_streams",
+            "-print_format",
+            "json",
+            video_file
+        ]
         process = await asyncio.create_subprocess_exec(
-            *command,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await process.communicate()
+        stderr_str = stderr.decode("utf-8").strip()
         if process.returncode != 0:
-            return None, None
-        result = json.loads(stdout.decode().strip())
-        video_codec = None
-        audio_codec = None
-        for stream in result.get("streams", []):
-            if stream.get("codec_type") == "video":
-                video_codec = stream.get("codec_name")
-            elif stream.get("codec_type") == "audio":
-                audio_codec = stream.get("codec_name")
-        return video_codec, audio_codec
+            logger.error(f"ffprobe failed for {video_file}: {stderr_str}")
+            return None
+        return json.loads(stdout.decode("utf-8"))
+    except FileNotFoundError:
+        logger.error("ffprobe executable not found")
+        return None
     except Exception as e:
-        print(f"Error getting video info for {file_path}: {e}")
-        return None, None
-
-async def parse_input_file(input_file: str) -> List[str]:
-    """Parse the input file to extract video file paths."""
-    video_files = []
-    try:
-        with open(input_file, "r") as f:
-            for line in f:
-                if line.startswith("file"):
-                    # Extract the file path (removing 'file' prefix and quotes)
-                    path = line.strip().split(" ", 1)[1].strip("'")
-                    if os.path.exists(path):
-                        video_files.append(path)
-    except Exception as e:
-        print(f"Error parsing input file {input_file}: {e}")
-    return video_files
-
-async def MergeVideo(input_file: str, user_id: int, message: Message, format_: str) -> Optional[str]:
-    """
-    Merge videos together using FFmpeg concat demuxer.
-
-    :param input_file: Path to input.txt file containing video paths.
-    :param user_id: User ID as integer.
-    :param message: Editable Message for showing FFmpeg progress.
-    :param format_: File extension (e.g., 'mp4').
-    :return: Path to merged video file or None if failed.
-    """
-    output_dir = f"{Config.DOWN_PATH}/{str(user_id)}"
-    await ensure_directory_exists(output_dir)
-    output_vid = f"{output_dir}/[@AbirHasan2005]_Merged.{format_.lower()}"
-
-    # Check codecs of input videos
-    video_files = await parse_input_file(input_file)
-    if not video_files:
-        await message.edit("Error: No valid video files found in input file.")
+        logger.error(f"ffprobe error for {video_file}: {e}")
         return None
 
-    codecs = await asyncio.gather(*(get_video_info(f) for f in video_files))
-    video_codecs = {c[0] for c in codecs if c[0]}
-    audio_codecs = {c[1] for c in codecs if c[1]}
+async def MergeVideo(
+    input_file: str,
+    user_id: str,
+    message: Message,
+    format_: str = "mkv"
+) -> Optional[str]:
+    """
+    Merge multiple video files into one using FFmpeg.
 
-    if len(video_codecs) > 1 or len(audio_codecs) > 1:
-        await message.edit(
-            "Warning: Input videos have different codecs. Merging with -c copy may fail.\n"
-            f"Video codecs: {video_codecs}\nAudio codecs: {audio_codecs}\n"
-            "Proceeding with merge, but results may be unpredictable."
+    Args:
+        input_file: Path to the input text file listing video files.
+        user_id: User identifier for directory structure.
+        message: Pyrogram Message object to update progress.
+        format_: Output file extension (default: 'mkv').
+
+    Returns:
+        Path to the merged video file or None if failed.
+    """
+    output_dir = f"{Config.DOWN_PATH}/{user_id}"
+    output_file = os.path.join(output_dir, f"[@Savior_99]_Merged.{format_.lower()}")
+
+    # Validate input file
+    if not os.path.exists(input_file):
+        logger.error(f"Input file {input_file} does not exist")
+        await message.edit_text(
+            "فایل ورودی یافت نشد!",
+            parse_mode=ParseMode.MARKDOWN
         )
-        await asyncio.sleep(3)
+        return None
 
+    # Check disk space
+    total, used, free = shutil.disk_usage(Config.DOWN_PATH)
+    if free < 2_000_000_000:  # Less than 2GB free
+        logger.error(f"Insufficient disk space: {free} bytes free")
+        await message.edit_text(
+            "فضای دیسک کافی نیست! لطفاً حداقل 2 گیگابایت فضای ذخیره‌سازی آزاد کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Check memory and CPU
+    memory = psutil.virtual_memory()
+    if memory.available < 1_000_000_000:  # Less than 1GB free
+        logger.error(f"Insufficient memory: {memory.available} bytes free")
+        await message.edit_text(
+            "حافظه کافی نیست! لطفاً حداقل 1 گیگابایت حافظه آزاد کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+    cpu_usage = psutil.cpu_percent()
+    if cpu_usage > 95:
+        logger.warning(f"High CPU usage: {cpu_usage}%")
+        await message.edit_text(
+            "بار پردازشی سرور بسیار بالاست! لطفاً چند دقیقه صبر کنید و دوباره امتحان کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Ensure output directory exists and has write permissions
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "test.txt"), "w") as f:
+            f.write("test")
+        os.remove(os.path.join(output_dir, "test.txt"))
+    except PermissionError:
+        logger.error(f"No write permission in directory {output_dir}")
+        await message.edit_text(
+            "مجوز نوشتن در مسیر ذخیره‌سازی وجود ندارد! لطفاً مجوزها را بررسی کنید。",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # Validate input video files
+    try:
+        with open(input_file, "r") as f:
+            video_files = []
+            for line in f:
+                line = line.strip()
+                if line and line.startswith("file "):
+                    # Extract path, handling quotes and spaces
+                    path = line[5:].strip().strip("'").strip('"')
+                    if path:
+                        video_files.append(path)
+        if not video_files:
+            logger.error("No valid video files listed in input file")
+            await message.edit_text(
+                "هیچ فایل ویدیویی معتبر در لیست ورودی یافت نشد!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        # Get video info for first file to set reference resolution and frame rate
+        first_video_info = await get_video_info(video_files[0])
+        if not first_video_info:
+            logger.error(f"Invalid first video file: {video_files[0]}")
+            await message.edit_text(
+                f"فایل ویدیویی {video_files[0]} خراب یا نامعتبر است!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        video_stream = next(
+            (stream for stream in first_video_info.get("streams", []) if stream.get("codec_type") == "video"),
+            None
+        )
+        if not video_stream:
+            logger.error(f"No video stream in {video_files[0]}")
+            await message.edit_text(
+                f"فایل {video_files[0]} جریان ویدیویی ندارد!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        width = video_stream.get("width")
+        height = video_stream.get("height")
+        if not width or not height:
+            logger.error(f"Invalid resolution in {video_files[0]}")
+            await message.edit_text(
+                f"رزولوشن فایل {video_files[0]} نامعتبر است!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        # Parse frame rate safely
+        frame_rate_str = video_stream.get("r_frame_rate", "30/1")
+        try:
+            num, denom = map(int, frame_rate_str.split("/"))
+            frame_rate = num / denom if denom != 0 else 30
+        except (ValueError, ZeroDivisionError):
+            logger.warning(f"Invalid frame rate {frame_rate_str}, defaulting to 30")
+            frame_rate = 30
+
+        # Validate other video files
+        for video in video_files[1:]:
+            if not os.path.exists(video):
+                logger.error(f"Video file {video} does not exist")
+                await message.edit_text(
+                    f"فایل ویدیویی {video} یافت نشد!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return None
+            video_info = await get_video_info(video)
+            if not video_info:
+                logger.error(f"Invalid video file: {video}")
+                await message.edit_text(
+                    f"فایل ویدیویی {video} خراب یا نامعتبر است!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return None
+
+    except Exception as e:
+        logger.error(f"Failed to read input file {input_file}: {e}")
+        await message.edit_text(
+            "خطا در خواندن فایل ورودی!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    # FFmpeg command with scale filter to unify resolution
     file_generator_command = [
         "ffmpeg",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", input_file,
-        "-c", "copy",
-        output_vid
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        input_file,
+        "-vf",
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={frame_rate}",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-c:a",
+        "aac",
+        "-y",
+        output_file
     ]
 
     try:
+        await message.edit_text(
+            "در حال ادغام ویدیوها...\nلطفاً صبور باشید...",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
+
         process = await asyncio.create_subprocess_exec(
             *file_generator_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-    except NotImplementedError:
-        await message.edit(
-            "Unable to execute FFmpeg command! Got `NotImplementedError`.\n"
-            "Please run the bot in a Linux/Unix environment."
+        stdout, stderr = await process.communicate(timeout=3600)  # 1-hour timeout
+        stdout_str = stdout.decode("utf-8").strip()
+        stderr_str = stderr.decode("utf-8").strip()
+        logger.debug(f"FFmpeg stdout: {stdout_str}")
+        logger.debug(f"FFmpeg stderr: {stderr_str}")
+
+        if process.returncode != 0:
+            logger.error(f"FFmpeg failed with error: {stderr_str}")
+            await message.edit_text(
+                "خطا در ادغام ویدیوها!",  # Avoid exposing raw error to user
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return None
+
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            logger.info(f"Merged video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
+            return output_file
+
+        logger.error("Failed to create merged video file")
+        await message.edit_text(
+            "خطا در ایجاد فایل ویدیویی ادغام‌شده! فایل خروجی یافت نشد یا خالی است.",
+            parse_mode=ParseMode.MARKDOWN
         )
-        await asyncio.sleep(10)
         return None
 
-    await message.edit("Merging video now...\n\nPlease be patient...")
-    stdout, stderr = await process.communicate()
-    e_response = stderr.decode().strip()
-    t_response = stdout.decode().strip()
-    print(e_response)
-    print(t_response)
+    except asyncio.TimeoutError:
+        logger.error("FFmpeg process timed out")
+        await message.edit_text(
+            "عملیات ادغام ویدیو به دلیل طولانی شدن بیش از حد متوقف شد!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
 
-    if os.path.exists(output_vid):
-        return output_vid
-    return None
+    except FileNotFoundError:
+        logger.error("FFmpeg executable not found")
+        await message.edit_text(
+            "اجرای FFmpeg یافت نشد! لطفاً مطمئن شوید که FFmpeg نصب شده است.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
+
+    except MessageNotModified:
+        logger.debug("Message edit skipped due to MessageNotModified")
+        pass
+
+    except Exception as e:
+        logger.error(f"MergeVideo failed: {e}")
+        await message.edit_text(
+            "خطا در ادغام ویدیو!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return None
 
 async def cut_small_video(
     video_file: str,
     output_directory: str,
-    start_time: float,
-    end_time: float,
-    format_: str,
-    accurate: bool = False
+    start_time: int,
+    end_time: int,
+    format_: str
 ) -> Optional[str]:
     """
-    Cut a small segment from a video.
+    Create a short sample video clip.
 
-    :param video_file: Path to input video file.
-    :param output_directory: Directory to save output video.
-    :param start_time: Start time in seconds.
-    :param end_time: End time in seconds.
-    :param format_: Output file extension (e.g., 'mp4').
-    :param accurate: If True, re-encode for frame-accurate cutting (slower).
-    :return: Path to output video file or None if failed.
+    Args:
+        video_file: Path to input video.
+        output_directory: Directory to save the output file.
+        start_time: Start time for the clip in seconds.
+        end_time: End time for the clip in seconds.
+        format_: File extension (e.g., 'mp4', 'mkv').
+
+    Returns:
+        Path to the sample video or None if failed.
     """
-    await ensure_directory_exists(output_directory)
-    out_put_file_name = f"{output_directory}/{str(round(time.time()))}.{format_.lower()}"
+    if start_time >= end_time or start_time < 0:
+        logger.error(f"Invalid time range: start_time={start_time}, end_time={end_time}")
+        return None
 
-    duration = end_time - start_time
-    file_generator_command = ["ffmpeg"]
+    output_file = os.path.join(output_directory, f"{round(time.time())}.{format_.lower()}")
+    file_generator_command = [
+        "ffmpeg",
+        "-i",
+        video_file,
+        "-ss",
+        str(start_time),
+        "-to",
+        str(end_time),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-c:a",
+        "aac",
+        "-y",
+        output_file
+    ]
 
-    if not accurate:
-        # Fast seeking (less accurate, faster)
-        file_generator_command.extend(["-ss", str(start_time), "-i", video_file, "-t", str(duration)])
-    else:
-        # Accurate seeking (slower, frame-accurate)
-        file_generator_command.extend(["-i", video_file, "-ss", str(start_time), "-t", str(duration)])
+    try:
+        video_info = await get_video_info(video_file)
+        if not video_info:
+            logger.error(f"Invalid video file: {video_file}")
+            return None
 
-    file_generator_command.extend([
-        "-async", "1",
-        "-strict", "-2"
-    ])
+        # Validate time range against video duration
+        duration = float(video_info.get("format", {}).get("duration", 0))
+        if end_time > duration:
+            logger.error(f"End time {end_time} exceeds video duration {duration}")
+            return None
 
-    if accurate:
-        # Re-encode for accurate cutting
-        file_generator_command.extend(["-c:v", "libx264", "-c:a", "aac"])
-    else:
-        # Copy streams for faster cutting
-        file_generator_command.extend(["-c", "copy"])
+        logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
+        process = await asyncio.create_subprocess_exec(
+            *file_generator_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate(timeout=300)  # 5-minute timeout
+        stdout_str = stdout.decode("utf-8").strip()
+        stderr_str = stderr.decode("utf-8").strip()
+        logger.debug(f"FFmpeg stdout: {stdout_str}")
+        logger.debug(f"FFmpeg stderr: {stderr_str}")
 
-    file_generator_command.append(out_put_file_name)
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            logger.info(f"Sample video created: {output_file}, Size: {os.path.getsize(output_file)} bytes")
+            return output_file
 
-    process = await asyncio.create_subprocess_exec(
-        *file_generator_command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-    e_response = stderr.decode().strip()
-    t_response = stdout.decode().strip()
-    print(e_response)
-    print(t_response)
+        logger.error(f"Failed to create sample video: {stderr_str}")
+        return None
 
-    if os.path.exists(out_put_file_name):
-        return out_put_file_name
-    return None
+    except asyncio.TimeoutError:
+        logger.error("FFmpeg process timed out")
+        return None
+
+    except FileNotFoundError:
+        logger.error("FFmpeg executable not found")
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to create sample video: {e}")
+        return None
 
 async def generate_screen_shots(
     video_file: str,
     output_directory: str,
     no_of_photos: int,
-    duration: float
+    duration: int
 ) -> List[str]:
     """
-    Generate screenshots from a video at regular intervals.
+    Generate screenshots from a video.
 
-    :param video_file: Path to input video file.
-    :param output_directory: Directory to save screenshots.
-    :param no_of_photos: Number of screenshots to generate.
-    :param duration: Duration of the video in seconds.
-    :return: List of paths to generated screenshot files.
+    Args:
+        video_file: Path to input video.
+        output_directory: Directory to save screenshots.
+        no_of_photos: Number of screenshots to generate.
+        duration: Duration of the video in seconds.
+
+    Returns:
+        List of screenshot file paths.
     """
-    await ensure_directory_exists(output_directory)
-    images = []
-    ttl_step = duration / no_of_photos if no_of_photos > 0 else duration
+    images: List[str] = []
+    if no_of_photos <= 0 or duration <= 0:
+        logger.error(f"Invalid parameters: no_of_photos={no_of_photos}, duration={duration}")
+        return images
+
+    ttl_step = duration // no_of_photos
     current_ttl = ttl_step
+
+    video_info = await get_video_info(video_file)
+    if not video_info:
+        logger.error(f"Invalid video file: {video_file}")
+        return images
 
     for _ in range(no_of_photos):
         await asyncio.sleep(1)
-        video_thumbnail = f"{output_directory}/{str(round(time.time()))}.jpg"
+        video_thumbnail = os.path.join(output_directory, f"{round(time.time())}.jpg")
         file_generator_command = [
             "ffmpeg",
-            "-ss", str(round(current_ttl)),
-            "-i", video_file,
-            "-vframes", "1",
+            "-ss",
+            str(round(current_ttl)),
+            "-i",
+            video_file,
+            "-vframes",
+            "1",
+            "-y",
             video_thumbnail
         ]
-        process = await asyncio.create_subprocess_exec(
-            *file_generator_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        e_response = stderr.decode().strip()
-        t_response = stdout.decode().strip()
-        print(e_response)
-        print(t_response)
-        current_ttl += ttl_step
-        if os.path.exists(video_thumbnail):
-            images.append(video_thumbnail)
+
+        try:
+            logger.info(f"Executing FFmpeg command: {' '.join(file_generator_command)}")
+            process = await asyncio.create_subprocess_exec(
+                *file_generator_command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate(timeout=60)  # 1-minute timeout
+            stdout_str = stdout.decode("utf-8").strip()
+            stderr_str = stderr.decode("utf-8").strip()
+            logger.debug(f"FFmpeg stdout: {stdout_str}")
+            logger.debug(f"FFmpeg stderr: {stderr_str}")
+
+            if os.path.exists(video_thumbnail) and os.path.getsize(video_thumbnail) > 0:
+                images.append(video_thumbnail)
+            current_ttl += ttl_step
+
+        except asyncio.TimeoutError:
+            logger.error("FFmpeg process timed out for screenshot")
+            continue
+
+        except FileNotFoundError:
+            logger.error("FFmpeg executable not found")
+            continue
+
+        except Exception as e:
+            logger.error(f"Failed to generate screenshot: {e}")
+            continue
 
     return images
