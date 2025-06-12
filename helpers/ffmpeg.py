@@ -182,7 +182,7 @@ async def MergeVideo(
         )
         if not video_stream:
             logger.error(f"No video stream in {video_files[0]}")
-            try aquelas
+            try:
                 await message.edit_text(
                     f"فایل {video_files[0]} جریان ویدیویی ندارد!",
                     parse_mode=ParseMode.MARKDOWN
