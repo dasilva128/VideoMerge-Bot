@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-RUN apt-get update && apt-get install -y ffmpeg
+RUN apt-get update && apt-get install -y ffmpeg TgCrypto
 WORKDIR /app
 COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
