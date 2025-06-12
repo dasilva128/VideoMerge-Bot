@@ -11,7 +11,7 @@ from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 from pyrogram.errors import MessageNotModified
 
-# Configure logging
+
 logger = logging.getLogger(__name__)
 
 async def get_video_info(video_file: str) -> Optional[dict]:
