@@ -297,7 +297,7 @@ async def MergeVideo(
         )
         return None
 
-async def cut_small_video(
+async def cult_small_video(
     video_file: str,
     output_directory: str,
     start_time: int,
