@@ -1,6 +1,7 @@
 pyrogram
 TgCrypto
 ffprobe
+ffmpeg-python
 hachoir
 Pillow
 aiohttp
