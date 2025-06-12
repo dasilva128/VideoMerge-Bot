@@ -129,3 +129,50 @@ async def UploadVideo(
             )
         except MessageNotModified:
             pass
+            
+async def progress_for_pyrogram(
+    current: int,
+    total: int,
+    message: Message,
+    start_time: float,
+    title: str = "Progress"
+) -> None:
+    """
+    Display upload/download progress for Pyrogram.
+    """
+    try:
+        if not message:
+            logger.error("Message object is None in progress_for_pyrogram")
+            return
+
+        now = time.time()
+        elapsed = now - start_time or 0.001  # Avoid division by zero
+
+        percentage = (current / total) * 100
+        speed = current / elapsed  # Bytes per second
+        eta = (total - current) / speed if speed > 0 else 0
+
+        progress_text = Config.PROGRESS.format(
+            round(percentage, 2),  # {0}: Percentage
+            format_size(current),  # {1}: Done
+            format_size(total),    # {2}: Total
+            format_size(speed),    # {3}: Speed
+            format_timespan(eta)   # {4}: ETA
+        )
+
+        message_text = f"**{title}**\n{progress_text}"
+
+        # Only update if message text has changed significantly
+        if not hasattr(message, "_last_progress") or message._last_progress != message_text:
+            await message.edit_text(
+                message_text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            message._last_progress = message_text
+
+    except MessageNotModified:
+        pass
+    except AttributeError as e:
+        logger.error(f"AttributeError in progress_for_pyrogram: {e}")
+    except Exception as e:
+        logger.error(f"Progress update failed: {e}")
