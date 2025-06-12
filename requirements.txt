@@ -1,5 +1,6 @@
 pyrogram
 TgCrypto
+ffprobe
 hachoir
 Pillow
 aiohttp
