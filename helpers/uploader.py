@@ -53,7 +53,7 @@ async def UploadVideo(bot: Client, cb: CallbackQuery, merged_vid_path: str, widt
                          InlineKeyboardButton("Bots Channel", url="https://t.me/Savior_128")]
                     ]
                 ),
-                parse_mode="markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
         else:
             sent_ = await bot.send_document(
@@ -74,7 +74,7 @@ async def UploadVideo(bot: Client, cb: CallbackQuery, merged_vid_path: str, widt
                          InlineKeyboardButton("Bots Channel", url="https://t.me/Savior_128")]
                     ]
                 ),
-                parse_mode="markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
         
         await asyncio.sleep(Config.TIME_GAP)
@@ -85,13 +85,13 @@ async def UploadVideo(bot: Client, cb: CallbackQuery, merged_vid_path: str, widt
                 text=f"**User:** [{cb.from_user.first_name}](tg://user?id={cb.from_user.id})\n**Username:** `{username}`\n**UserID:** `{cb.from_user.id}`",
                 disable_web_page_preview=True,
                 quote=True,
-                parse_mode="markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
     except MessageNotModified:
         pass  # Silently ignore if progress update fails
     except Exception as err:
         print(f"Failed to Upload Video: {err}")
         try:
-            await cb.message.edit_text(f"Failed to Upload Video!\n**Error:**\n`{err}`", parse_mode="markdown")
+            await cb.message.edit_text(f"Failed to Upload Video!\n**Error:**\n`{err}`", parse_mode=ParseMode.MARKDOWN)
         except MessageNotModified:
             pass
